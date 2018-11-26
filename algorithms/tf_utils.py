@@ -1,6 +1,28 @@
 import tensorflow as tf
 
 
+def dense(x, layer_size, regularizer=None, activation=tf.nn.relu):
+    return tf.contrib.layers.fully_connected(
+        x,
+        layer_size,
+        activation_fn=activation,
+        weights_regularizer=regularizer,
+        biases_regularizer=regularizer,
+    )
+
+
+def conv(x, num_filters, kernel_size, stride=1, regularizer=None, scope=None):
+    return tf.contrib.layers.conv2d(
+        x,
+        num_filters,
+        kernel_size,
+        stride=stride,
+        weights_regularizer=regularizer,
+        biases_regularizer=regularizer,
+        scope=scope,
+    )
+
+
 def count_total_parameters():
     """
     Returns total number of trainable parameters in the current tf graph.

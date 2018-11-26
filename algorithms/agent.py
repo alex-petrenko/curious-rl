@@ -62,7 +62,7 @@ class AgentLearner(Agent):
         self.summary_rate_decay = LinearDecay([(0, 100), (1000000, 2000), (10000000, 10000)], staircase=100)
         self.save_rate_decay = LinearDecay([(0, 100), (1000000, 2000)], staircase=100)
 
-        self.best_avg_reward = tf.Variable(-1e20, dtype=tf.float64)
+        self.best_avg_reward = tf.Variable(-1e3, dtype=tf.float64)
         self.total_env_steps = tf.Variable(0, dtype=tf.int64)
 
         def update_best_value(best_value, new_value):
@@ -76,7 +76,7 @@ class AgentLearner(Agent):
         """Start the session."""
         gpu_options = tf.GPUOptions()
         if self.params.gpu_mem_fraction != 1.0:
-            gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction = self.params.gpu_mem_fraction)
+            gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=self.params.gpu_mem_fraction)
 
         config = tf.ConfigProto(
             device_count={'GPU': 100 if self.params.use_gpu else 0},

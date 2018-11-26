@@ -152,7 +152,13 @@ class MultiEnv:
 
         for i in range(self.num_envs):
             self.curr_episode_reward[i] += rewards[i]
-            self.curr_episode_duration[i] += 1
+
+            step_len = 1
+            if infos[i] is not None and 'num_frames' in infos[i]:
+                step_len = infos[i]['num_frames']
+
+            self.curr_episode_duration[i] += step_len
+
             if dones[i]:
                 self._update_episode_stats(i, self.episode_rewards, self.curr_episode_reward)
                 self._update_episode_stats(i, self.episode_lengths, self.curr_episode_duration)
