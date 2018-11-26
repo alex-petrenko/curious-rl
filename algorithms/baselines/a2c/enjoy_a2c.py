@@ -12,7 +12,9 @@ from algorithms.baselines.a2c.agent_a2c import AgentA2C
 
 def enjoy(params, env_id, max_num_episodes=1000000, fps=10):
     def make_env_func():
-        return create_env(env_id, mode='test')
+        e = create_env(env_id, mode='test')
+        e.seed(0)
+        return e
 
     agent = AgentA2C(make_env_func, params.load())
     env = make_env_func()
@@ -24,7 +26,7 @@ def enjoy(params, env_id, max_num_episodes=1000000, fps=10):
         log.info('Press any key to start...')
         cv2.waitKey()
 
-    return run_policy_loop(agent, env, max_num_episodes, fps, deterministic=False)
+    return run_policy_loop(agent, env, max_num_episodes, fps=1000, deterministic=False)
 
 
 def main():

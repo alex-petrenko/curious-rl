@@ -35,7 +35,10 @@ def make_doom_env(doom_cfg, mode='train'):
 
     # courtesy of https://github.com/pathak22/noreward-rl/blob/master/src/envs.py
     # and https://github.com/ppaquette/gym-doom
-    obwrapper = set_resolution('160x120')
+    if mode == 'test':
+        obwrapper = set_resolution('800x600')
+    else:
+        obwrapper = set_resolution('160x120')
     env = obwrapper(env)
 
     env = ResizeAndGrayscaleWrapper(env, DOOM_W, DOOM_H)
