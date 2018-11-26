@@ -363,7 +363,7 @@ class AgentA2C(AgentLearner):
         Allows you too look inside the training process.
         """
         step = initial_step = tf.train.global_step(self.session, tf.train.get_global_step())
-        env_steps = self.total_env_steps.eval(session=self.session)
+        env_steps = env_steps_initial = self.total_env_steps.eval(session=self.session)
         batch_size = self.params.rollout * self.params.num_envs
 
         multi_env = MultiEnv(
@@ -380,7 +380,9 @@ class AgentA2C(AgentLearner):
             timing = AttrDict({'experience': time.time(), 'batch': time.time()})
             experience_start = time.time()
 
+            env_steps_before_batch = env_steps
             batch_obs = [observations]
+            env_steps += len(observations)
             batch_actions, batch_values, batch_rewards, batch_dones = [], [], [], []
             for rollout_step in range(self.params.rollout):
                 actions, values = self._policy_step(observations)
@@ -388,10 +390,13 @@ class AgentA2C(AgentLearner):
                 batch_values.append(values)
 
                 # wait for all the workers to complete an environment step
-                observations, rewards, dones = multi_env.step(actions)
+                observations, rewards, dones, infos = multi_env.step(actions)
                 batch_rewards.append(rewards)
                 batch_dones.append(dones)
-                env_steps += multi_env.num_envs
+                if infos is not None and 'num_frames' in infos[0]:
+                    env_steps += sum((info['num_frames'] for info in infos))
+                else:
+                    env_steps += multi_env.num_envs
 
                 if rollout_step != self.params.rollout - 1:
                     # we don't need the newest observation in the training batch, already have enough
@@ -424,11 +429,11 @@ class AgentA2C(AgentLearner):
 
             avg_reward = multi_env.calc_avg_rewards(n=self.params.stats_episodes)
             avg_length = multi_env.calc_avg_episode_lengths(n=self.params.stats_episodes)
-            fps = batch_size / (time.time() - timing.batch)
+            fps = (env_steps - env_steps_before_batch) / (time.time() - timing.batch)
 
             self._maybe_print(step, avg_reward, avg_length, fps, timing)
             self._maybe_aux_summaries(step, env_steps, avg_reward, avg_length)
-            self._maybe_update_avg_reward(multi_env.stats_num_episodes(), avg_reward)
+            self._maybe_update_avg_reward(avg_reward, env_steps - env_steps_initial)
 
             if step_callback is not None:
                 step_callback(locals(), globals())

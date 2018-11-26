@@ -14,11 +14,7 @@ class StepType(Enum):
 
 
 class _MultiEnvWorker:
-    """
-    Helper class for the MultiEnv.
-    Currently implemented with threads, and it's slow because of GIL.
-    It would be much better to implement this with multiprocessing.
-    """
+    """Helper class for the MultiEnv."""
 
     def __init__(self, env_indices, make_env_func):
         self._verbose = False
@@ -27,9 +23,10 @@ class _MultiEnvWorker:
 
         self.envs = []
         self.initial_obs = []
-        for i in range(len(env_indices)):
+        for i in env_indices:
+            log.info('Initializing env %d...', i)
             env = make_env_func()
-            env.seed(env_indices[i])
+            env.seed(i)
             self.initial_obs.append(env.reset())
             self.envs.append(env)
 
@@ -82,7 +79,7 @@ class _MultiEnvWorker:
 
             # Collect obs, reward, and 'done' for each env (discard info)
             prediction_start = time.time()
-            results = [env.step(action)[:3] for env, action in zip(envs, actions)]
+            results = [env.step(action) for env, action in zip(envs, actions)]
 
             # pack results per-env
             results = np.split(np.array(results), len(self.envs))
@@ -93,10 +90,10 @@ class _MultiEnvWorker:
             # If this is a real step and the env is done, reset
             if step_type == StepType.REAL:
                 for i, result in enumerate(results):
-                    obs, reward, done = result[0]
+                    obs, reward, done, info = result[0]
                     if done:
                         obs = self.envs[i].reset()
-                    results[i] = (obs, reward, done)  # collapse dimension of size 1
+                    results[i] = (obs, reward, done, info)  # collapse dimension of size 1
 
             self.result_queue.put(results)
             self.step_queue.task_done()
@@ -151,7 +148,7 @@ class MultiEnv:
             for result in results_per_worker:
                 results.append(result)
 
-        observations, rewards, dones = zip(*results)
+        observations, rewards, dones, infos = zip(*results)
 
         for i in range(self.num_envs):
             self.curr_episode_reward[i] += rewards[i]
@@ -160,7 +157,7 @@ class MultiEnv:
                 self._update_episode_stats(i, self.episode_rewards, self.curr_episode_reward)
                 self._update_episode_stats(i, self.episode_lengths, self.curr_episode_duration)
 
-        return observations, rewards, dones
+        return observations, rewards, dones, infos
 
     def predict(self, imagined_action_lists):
         start = time.time()
@@ -178,7 +175,7 @@ class MultiEnv:
             results_per_worker = worker.result_queue.get()
             assert len(results_per_worker) == len(imagined_action_list)
             for result in results_per_worker:
-                o, r, d = zip(*result)
+                o, r, d, _ = zip(*result)
                 observations.append(o)
                 rewards.append(r)
                 dones.append(d)

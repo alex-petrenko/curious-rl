@@ -1,5 +1,3 @@
-import gym
-
 from unittest import TestCase
 
 from gym.wrappers import TimeLimit
@@ -24,7 +22,6 @@ class TestAlgos(TestCase):
         self.assertFalse(agent._should_write_summaries(1000100 - 1))
 
     def test_run_loop(self):
-        env = TimeLimit(make_doom_env(env_by_name(TEST_ENV_NAME)), max_episode_steps=50)
-
+        env = TimeLimit(make_doom_env(env_by_name(TEST_ENV_NAME), mode='test'), max_episode_steps=50)
         agent = AgentRandom({}, env)
-        run_policy_loop(agent, env, 1, 60)
+        run_policy_loop(agent, env, 1, 200)

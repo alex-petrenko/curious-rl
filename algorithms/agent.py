@@ -101,15 +101,15 @@ class AgentLearner(Agent):
         if (step + 1) % save_every == 0:
             log.info('Training step #%d, env steps: %d, saving...', step, env_steps)
             saver_path = model_dir(self.params.experiment_name()) + '/' + self.__class__.__name__
-            self.saver.save(self.session, saver_path, global_step=step)
             self.session.run(self.update_env_steps, feed_dict={self.total_env_steps_placeholder: env_steps})
+            self.saver.save(self.session, saver_path, global_step=step)
 
     def _should_write_summaries(self, step):
         summaries_every = self.summary_rate_decay.at(step)
         return (step + 1) % summaries_every == 0
 
-    def _maybe_update_avg_reward(self, stats_episodes, avg_reward):
-        if stats_episodes >= self.params.stats_episodes:
+    def _maybe_update_avg_reward(self, avg_reward, env_steps_this_session):
+        if env_steps_this_session > self.params.stats_episodes * 20:
             if avg_reward > self.best_avg_reward.eval(session=self.session) + 1e-9:
                 log.warn('New best reward %.6f!', avg_reward)
                 self.session.run(self.update_best_reward, feed_dict={self.avg_reward_placeholder: avg_reward})

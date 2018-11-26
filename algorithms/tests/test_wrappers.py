@@ -4,7 +4,8 @@ import numpy as np
 from unittest import TestCase
 
 from algorithms.agent import AgentRandom
-from algorithms.env_wrappers import NormalizeWrapper, StackFramesWrapper, unwrap_env, ResizeAndGrayscaleWrapper
+from algorithms.env_wrappers import NormalizeWrapper, StackFramesWrapper, unwrap_env, ResizeAndGrayscaleWrapper, \
+    SkipAndStackFramesWrapper
 from algorithms.multi_env import MultiEnv
 from utils.doom.doom_utils import make_doom_env, DOOM_W, DOOM_H, env_by_name
 
@@ -56,6 +57,14 @@ class TestWrappers(TestCase):
         env = StackFramesWrapper(env, stack)
         env.reset()
 
+    def test_repeat(self):
+        env = make_doom_env(env_by_name(TEST_ENV_NAME))
+        env = ResizeAndGrayscaleWrapper(env, DOOM_W, DOOM_H)
+        env = SkipAndStackFramesWrapper(env, num_frames=4)
+        env.reset()
+        _, _, _, info = env.step(0)
+        self.assertEqual(info['num_frames'], 4)
+
     def test_unwrap(self):
         env = make_doom_env(env_by_name(TEST_ENV_NAME))
         unwrapped = unwrap_env(env)
@@ -93,9 +102,10 @@ class TestMultiEnv(TestCase):
         self.assertGreater(num_different, len(obs) // 2)
 
         for i in range(20):
-            obs, rewards, dones = multi_env.step([0] * num_envs)
+            obs, rewards, dones, infos = multi_env.step([0] * num_envs)
             self.assertEqual(len(obs), num_envs)
             self.assertEqual(len(rewards), num_envs)
             self.assertEqual(len(dones), num_envs)
+            self.assertEqual(len(infos), num_envs)
 
         multi_env.close()
