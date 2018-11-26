@@ -1,9 +1,5 @@
 import gym
-import numpy as np
 
-from vizdoom import *
-
-from utils.utils import log
 
 resolutions = ['160x120', '200x125', '200x150', '256x144', '256x160', '256x192', '320x180', '320x200',
                '320x240', '320x256', '400x225', '400x250', '400x300', '512x288', '512x320', '512x384',
@@ -33,22 +29,10 @@ def set_resolution(target_resolution):
             screen_res = getattr(screen_res, 'ScreenResolution')
             screen_res = getattr(screen_res, 'RES_{}X{}'.format(width, height))
 
-            doom_game = self.unwrapped.game
-            log.info(
-                'Doom resolution: %dx%dx%d',
-                doom_game.get_screen_height(), doom_game.get_screen_width(), doom_game.get_screen_channels(),
-            )
-
-            doom_game.set_screen_resolution(screen_res)
-
-            log.info(
-                'Doom resolution: %dx%dx%d',
-                doom_game.get_screen_height(), doom_game.get_screen_width(), doom_game.get_screen_channels(),
-            )
-
-            self.unwrapped.observation_space = gym.spaces.Box(
-                low=0, high=255, shape=(height, width, 3), dtype=np.uint8,
-            )
+            self.unwrapped.screen_w = width
+            self.unwrapped.screen_h = height
+            self.unwrapped.screen_resolution = screen_res
+            self.unwrapped.calc_observation_space()
             self.observation_space = self.unwrapped.observation_space
 
         def reset(self):

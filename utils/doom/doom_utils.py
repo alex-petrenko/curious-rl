@@ -18,6 +18,8 @@ class DoomCfg:
 DOOM_ENVS = [
     DoomCfg('basic', 'VizdoomBasic-v0', 0.01),
     DoomCfg('maze', 'VizdoomMyWayHome-v0', 1.0),
+    DoomCfg('maze_sparse', 'VizdoomMyWayHomeSparse-v0', 1.0),
+    DoomCfg('maze_very_sparse', 'VizdoomMyWayHomeVerySparse-v0', 1.0),
 ]
 
 
