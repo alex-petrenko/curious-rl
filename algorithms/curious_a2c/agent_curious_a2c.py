@@ -10,7 +10,7 @@ from tensorflow.contrib import slim
 
 from algorithms.algo_utils import RunningMeanStd, EPS
 from algorithms.baselines.a2c.agent_a2c import AgentA2C, Policy
-from algorithms.env_wrappers import has_image_observations, TimeLimitWrapper
+from algorithms.env_wrappers import has_image_observations
 from algorithms.multi_env import MultiEnv
 from algorithms.tf_utils import dense, count_total_parameters, conv
 from algorithms.utils import summaries_dir
@@ -72,6 +72,7 @@ class Model:
             axis=1,
         )
         forward_model_hidden = dense(forward_model_input, forward_fc, self.regularizer)
+        forward_model_hidden = dense(forward_model_hidden, forward_fc, self.regularizer)
         forward_model_output = tf.contrib.layers.fully_connected(
             forward_model_hidden, feature_vector_size, activation_fn=None,
         )
@@ -119,15 +120,15 @@ class AgentCuriousA2C(AgentA2C):
         def __init__(self, experiment_name):
             """Default parameter values set in ctor."""
             super(AgentCuriousA2C.Params, self).__init__(experiment_name)
-            self.icm_beta = 0.9  # in ICM, importance of training forward model vs inverse model
-            self.model_lr_scale = 10.0  # in ICM, importance of model loss vs actor-critic loss
+            self.icm_beta = 0.99  # in ICM, importance of training forward model vs inverse model
+            self.model_lr_scale = 100.0  # in ICM, importance of model loss vs actor-critic loss
             self.prediction_bonus_coeff = 0.02  # scaling factor for prediction bonus vs env rewards
 
             self.clip_bonus = 0.05
             self.clip_advantage = 5
             self.normalize_rewards = False
 
-            self.forward_fc = 256
+            self.forward_fc = 512
 
         # noinspection PyMethodMayBeStatic
         def filename_prefix(self):
@@ -168,11 +169,13 @@ class AgentCuriousA2C(AgentA2C):
         )
 
         # maximize probabilities of actions that give high advantage
-        action_loss = tf.reduce_mean(self.advantages * neglogp_actions)
+        action_losses = tf.clip_by_value(self.advantages * neglogp_actions, -20.0, 20.0)
+        action_loss = tf.reduce_mean(action_losses)
 
         # penalize for inaccurate value estimation
-        value_loss = tf.losses.mean_squared_error(self.discounted_rewards, self.policy.value)
-        value_loss = self.params.value_loss_coeff * value_loss
+        value_losses = tf.square(self.discounted_rewards - self.policy.value)
+        value_losses = tf.clip_by_value(value_losses, -20.0, 20.0)
+        value_loss = self.params.value_loss_coeff * tf.reduce_mean(value_losses)
 
         # penalize the agent for being "too sure" about it's actions (to prevent converging to the suboptimal local
         # minimum too soon)
@@ -249,8 +252,13 @@ class AgentCuriousA2C(AgentA2C):
             tf.summary.scalar('policy_entropy', tf.reduce_mean(self.policy.actions_prob_distribution.entropy()))
             tf.summary.scalar('entropy_coeff', entropy_loss_coeff)
 
+        with tf.name_scope('a2c_losses'):
             tf.summary.scalar('action_loss', action_loss)
+            tf.summary.scalar('max_action_loss', tf.reduce_max(action_losses))
+
             tf.summary.scalar('value_loss', value_loss)
+            tf.summary.scalar('max_value_loss', tf.reduce_max(value_losses))
+
             tf.summary.scalar('entropy_loss', entropy_loss)
             tf.summary.scalar('a2c_loss', a2c_loss)
 

@@ -168,7 +168,7 @@ class AgentA2C(AgentLearner):
         )
 
         # maximize probabilities of actions that give high advantage
-        action_loss = tf.reduce_mean(advantages * neglogp_actions)
+        action_loss = tf.reduce_mean(tf.clip_by_value(advantages * neglogp_actions, -20.0, 20.0))
 
         # penalize for inaccurate value estimation
         value_loss = tf.losses.mean_squared_error(self.discounted_rewards, self.policy.value)
