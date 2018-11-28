@@ -2,7 +2,7 @@ import gym
 import vizdoomgym
 
 from algorithms.env_wrappers import ResizeAndGrayscaleWrapper, StackFramesWrapper, RewardScalingWrapper, \
-    SkipAndStackFramesWrapper
+    SkipAndStackFramesWrapper, TimeLimitWrapper
 from utils.doom.wrappers import set_resolution
 
 DOOM_W = DOOM_H = 42
@@ -42,6 +42,7 @@ def make_doom_env(doom_cfg, mode='train'):
     env = obwrapper(env)
 
     env = ResizeAndGrayscaleWrapper(env, DOOM_W, DOOM_H)
+    env = TimeLimitWrapper(env, limit=2050, random_variation_steps=10)
 
     if mode == 'test':
         # disable action repeat during test time

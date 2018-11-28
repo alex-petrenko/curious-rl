@@ -2,10 +2,9 @@ import numpy as np
 
 from unittest import TestCase
 
-from gym.wrappers import TimeLimit
-
 from algorithms.agent import AgentLearner, AgentRandom
 from algorithms.algo_utils import RunningMeanStd
+from algorithms.env_wrappers import TimeLimitWrapper
 from algorithms.exploit import run_policy_loop
 from algorithms.tests.test_wrappers import TEST_ENV_NAME
 from utils.doom.doom_utils import make_doom_env, env_by_name
@@ -26,7 +25,7 @@ class TestAlgos(TestCase):
         self.assertFalse(agent._should_write_summaries(1000100 - 1))
 
     def test_run_loop(self):
-        env = TimeLimit(make_doom_env(env_by_name(TEST_ENV_NAME), mode='test'), max_episode_steps=50)
+        env = TimeLimitWrapper(make_doom_env(env_by_name(TEST_ENV_NAME), mode='test'), 50, 0)
         agent = AgentRandom({}, env)
         run_policy_loop(agent, env, 1, 200)
 

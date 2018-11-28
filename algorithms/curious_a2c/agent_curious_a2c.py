@@ -10,7 +10,7 @@ from tensorflow.contrib import slim
 
 from algorithms.algo_utils import RunningMeanStd, EPS
 from algorithms.baselines.a2c.agent_a2c import AgentA2C, Policy
-from algorithms.env_wrappers import has_image_observations
+from algorithms.env_wrappers import has_image_observations, TimeLimitWrapper
 from algorithms.multi_env import MultiEnv
 from algorithms.tf_utils import dense, count_total_parameters, conv
 from algorithms.utils import summaries_dir
@@ -121,7 +121,7 @@ class AgentCuriousA2C(AgentA2C):
             super(AgentCuriousA2C.Params, self).__init__(experiment_name)
             self.icm_beta = 0.5  # in ICM, importance of training forward model vs inverse model
             self.model_lr_scale = 10.0  # in ICM, importance of model loss vs actor-critic loss
-            self.prediction_bonus_coeff = 0.05  # scaling factor for prediction bonus vs env rewards
+            self.prediction_bonus_coeff = 0.02  # scaling factor for prediction bonus vs env rewards
 
             self.clip_bonus = 0.1
             self.clip_advantage = 5
@@ -360,6 +360,7 @@ class AgentCuriousA2C(AgentA2C):
             batch_obs = [observations]
             env_steps += len(observations)
             batch_actions, batch_values, batch_rewards, batch_dones, batch_next_obs = [], [], [], [], []
+            terminated_by_timer = []
             for rollout_step in range(self.params.rollout):
                 actions, values = self._policy_step(observations)
                 batch_actions.append(actions)
@@ -380,6 +381,9 @@ class AgentCuriousA2C(AgentA2C):
                 batch_rewards.append(rewards)
                 batch_dones.append(dones)
                 batch_next_obs.append(next_obs)
+                terminated_by_timer.append(
+                    ['terminated_by_timer' in info and info['terminated_by_timer'] for info in infos]
+                )
 
                 observations = next_obs
 
@@ -397,13 +401,25 @@ class AgentCuriousA2C(AgentA2C):
 
             batch_rewards = np.asarray(batch_rewards, np.float32).swapaxes(0, 1)
             batch_dones = np.asarray(batch_dones, np.bool).swapaxes(0, 1)
+            terminated_by_timer = np.asarray(terminated_by_timer, np.bool).swapaxes(0, 1)
             batch_values = np.asarray(batch_values, np.float32).swapaxes(0, 1)
+
+            # Last value won't be valid for envs with done=True (because env automatically resets and shows 1st
+            # observation of the next episode. But that's okay, because we should never use last_value in this case.
             last_values = self._estimate_values(observations)
 
             gamma = self.params.gamma
             disc_rewards = []
-            for env_rewards, env_dones, val, last_value in zip(batch_rewards, batch_dones, batch_values, last_values):
-                disc_rewards.extend(self._calc_discounted_rewards(gamma, env_rewards, env_dones, val, last_value))
+            for i in range(len(batch_rewards)):
+                env_rewards = self._calc_discounted_rewards(
+                    gamma,
+                    batch_rewards[i],
+                    batch_dones[i],
+                    terminated_by_timer[i],
+                    batch_values[i],
+                    last_values[i],
+                )
+                disc_rewards.extend(env_rewards)
             disc_rewards = np.asarray(disc_rewards, np.float32)
 
             # convert observations and estimations to meaningful n-step batches

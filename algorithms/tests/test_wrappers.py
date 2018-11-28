@@ -5,7 +5,7 @@ from unittest import TestCase
 
 from algorithms.agent import AgentRandom
 from algorithms.env_wrappers import NormalizeWrapper, StackFramesWrapper, unwrap_env, ResizeAndGrayscaleWrapper, \
-    SkipAndStackFramesWrapper
+    SkipAndStackFramesWrapper, TimeLimitWrapper
 from algorithms.multi_env import MultiEnv
 from utils.doom.doom_utils import make_doom_env, DOOM_W, DOOM_H, env_by_name
 
@@ -58,12 +58,38 @@ class TestWrappers(TestCase):
         env.reset()
 
     def test_repeat(self):
-        env = make_doom_env(env_by_name(TEST_ENV_NAME))
+        env = gym.make(TEST_ENV)
         env = ResizeAndGrayscaleWrapper(env, DOOM_W, DOOM_H)
         env = SkipAndStackFramesWrapper(env, num_frames=4)
         env.reset()
         _, _, _, info = env.step(0)
         self.assertEqual(info['num_frames'], 4)
+
+    def test_timer(self):
+        env = gym.make(TEST_ENV)
+        timelimit = 50
+        env = TimeLimitWrapper(env, timelimit, 0)
+        env.reset()
+
+        i = done = info = None
+        for i in range(timelimit + 1):
+            _, _, done, info = env.step(0)
+        self.assertEqual(i, timelimit)
+        self.assertTrue(done)
+        self.assertIn(TimeLimitWrapper.terminated_by_timer, info)
+        self.assertTrue(info[TimeLimitWrapper.terminated_by_timer])
+
+        env.close()
+        env = gym.make(TEST_ENV)
+        env = TimeLimitWrapper(env, timelimit, 3)
+        done = False
+        steps = 0
+        while not done:
+            _, _, done, info = env.step(0)
+            steps += 1
+        self.assertGreaterEqual(steps, timelimit - 3)
+        self.assertLessEqual(steps, timelimit + 3)
+        self.assertTrue(info[TimeLimitWrapper.terminated_by_timer])
 
     def test_unwrap(self):
         env = make_doom_env(env_by_name(TEST_ENV_NAME))

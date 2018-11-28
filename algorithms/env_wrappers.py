@@ -165,3 +165,31 @@ class RewardScalingWrapper(RewardWrapper):
     def reward(self, reward):
         return reward * self._scaling
 
+
+class TimeLimitWrapper(gym.core.Wrapper):
+    terminated_by_timer = 'terminated_by_timer'
+
+    def __init__(self, env, limit, random_variation_steps=0):
+        super(TimeLimitWrapper, self).__init__(env)
+        self._limit = limit
+        self._variation_steps = random_variation_steps
+        self._num_steps = 0
+        self._terminate_in = self._random_limit()
+
+    def _random_limit(self):
+        return np.random.randint(-self._variation_steps, self._variation_steps + 1) + self._limit
+
+    def reset(self):
+        self._num_steps = 0
+        self._terminate_in = self._random_limit()
+        return self.env.reset()
+
+    def step(self, action):
+        observation, reward, done, info = self.env.step(action)
+        self._num_steps += 1
+        if not done:
+            if self._num_steps >= self._terminate_in:
+                done = True
+                info[self.terminated_by_timer] = True
+
+        return observation, reward, done, info
