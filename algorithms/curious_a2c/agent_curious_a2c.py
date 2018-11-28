@@ -8,6 +8,7 @@ import numpy as np
 import tensorflow as tf
 from tensorflow.contrib import slim
 
+from algorithms.algo_utils import RunningMeanStd, EPS
 from algorithms.baselines.a2c.agent_a2c import AgentA2C, Policy
 from algorithms.env_wrappers import has_image_observations
 from algorithms.multi_env import MultiEnv
@@ -19,7 +20,7 @@ from utils.utils import log, AttrDict
 class Model:
     """Single class for inverse and forward dynamics model."""
 
-    def __init__(self, env, obs, actions, past_frames):
+    def __init__(self, env, obs, actions, past_frames, forward_fc):
         """
         :param obs - placeholder for observations
         :param actions - placeholder for selected actions
@@ -70,7 +71,7 @@ class Model:
             [tf.stop_gradient(encoded_obs), actions_one_hot],  # do not backpropagate to encoder!
             axis=1,
         )
-        forward_model_hidden = dense(forward_model_input, 256, self.regularizer)
+        forward_model_hidden = dense(forward_model_input, forward_fc, self.regularizer)
         forward_model_output = tf.contrib.layers.fully_connected(
             forward_model_hidden, feature_vector_size, activation_fn=None,
         )
@@ -120,9 +121,13 @@ class AgentCuriousA2C(AgentA2C):
             super(AgentCuriousA2C.Params, self).__init__(experiment_name)
             self.icm_beta = 0.5  # in ICM, importance of training forward model vs inverse model
             self.model_lr_scale = 10.0  # in ICM, importance of model loss vs actor-critic loss
-            self.prediction_bonus_coeff = 0.005  # scaling factor for prediction bonus vs env rewards
+            self.prediction_bonus_coeff = 0.05  # scaling factor for prediction bonus vs env rewards
 
-            self.clip_bonus = 1.0
+            self.clip_bonus = 0.1
+            self.clip_advantage = 5
+            self.normalize_rewards = False
+
+            self.forward_fc = 256
 
         # noinspection PyMethodMayBeStatic
         def filename_prefix(self):
@@ -139,6 +144,7 @@ class AgentCuriousA2C(AgentA2C):
         self.selected_actions = tf.placeholder(tf.int32, [None])  # action selected by the policy
         self.value_estimates = tf.placeholder(tf.float32, [None])
         self.discounted_rewards = tf.placeholder(tf.float32, [None])  # estimate of total reward (rollout + value)
+        self.advantages = tf.placeholder(tf.float32, [None])
 
         env = make_env_func()  # we need it to query observation shape, number of actions, etc.
         self.policy = Policy(
@@ -150,13 +156,11 @@ class AgentCuriousA2C(AgentA2C):
             params.stack_past_frames,
         )
 
-        self.model = Model(env, self.policy.observations, self.selected_actions, params.stack_past_frames)
+        self.model = Model(
+            env, self.policy.observations, self.selected_actions, params.stack_past_frames, params.forward_fc,
+        )
 
         env.close()
-
-        advantages = self.discounted_rewards - self.value_estimates
-        if self.params.normalize_advantage:
-            advantages = advantages / tf.reduce_max(tf.abs(advantages))
 
         # negative logarithm of the probabilities of actions
         neglogp_actions = tf.nn.sparse_softmax_cross_entropy_with_logits(
@@ -164,7 +168,7 @@ class AgentCuriousA2C(AgentA2C):
         )
 
         # maximize probabilities of actions that give high advantage
-        action_loss = tf.reduce_mean(advantages * neglogp_actions)
+        action_loss = tf.reduce_mean(self.advantages * neglogp_actions)
 
         # penalize for inaccurate value estimation
         value_loss = tf.losses.mean_squared_error(self.discounted_rewards, self.policy.value)
@@ -226,18 +230,19 @@ class AgentCuriousA2C(AgentA2C):
                 if self.policy.observations.shape[-1].value > 4:
                     tf.summary.image('observations_last_channel', self.policy.observations[:, :, :, -1:])
 
-            tf.summary.scalar('avg_disc_rewards', tf.reduce_mean(self.discounted_rewards))
-            tf.summary.scalar('max_disc_rewards', tf.reduce_max(self.discounted_rewards))
-            tf.summary.scalar('min_disc_rewards', tf.reduce_min(self.discounted_rewards))
+            tf.summary.scalar('disc_rewards_avg', tf.reduce_mean(self.discounted_rewards))
+            tf.summary.scalar('disc_rewards_max', tf.reduce_max(self.discounted_rewards))
+            tf.summary.scalar('disc_rewards_min', tf.reduce_min(self.discounted_rewards))
 
-            tf.summary.scalar('avg_bonus', tf.reduce_mean(self.prediction_curiosity_bonus))
-            tf.summary.scalar('max_bonus', tf.reduce_max(self.prediction_curiosity_bonus))
-            tf.summary.scalar('min_bonus', tf.reduce_min(self.prediction_curiosity_bonus))
+            tf.summary.scalar('bonus_avg', tf.reduce_mean(self.prediction_curiosity_bonus))
+            tf.summary.scalar('bonus_max', tf.reduce_max(self.prediction_curiosity_bonus))
+            tf.summary.scalar('bonus_min', tf.reduce_min(self.prediction_curiosity_bonus))
 
             tf.summary.scalar('value', tf.reduce_mean(self.policy.value))
-            tf.summary.scalar('avg_abs_advantage', tf.reduce_mean(tf.abs(advantages)))
 
-            tf.summary.scalar('action_avg', tf.reduce_mean(tf.to_float(self.policy.act)))
+            tf.summary.scalar('adv_avg_abs', tf.reduce_mean(tf.abs(self.advantages)))
+            tf.summary.scalar('adv_max', tf.reduce_max(self.advantages))
+            tf.summary.scalar('adv_min', tf.reduce_min(self.advantages))
 
             tf.summary.scalar('selected_action_avg', tf.reduce_mean(tf.to_float(self.selected_actions)))
 
@@ -264,7 +269,14 @@ class AgentCuriousA2C(AgentA2C):
 
         with tf.name_scope('a2c_aux_summary'):
             tf.summary.scalar('training_steps', global_step, collections=['aux'])
-            tf.summary.scalar('best_reward_ever', self.best_avg_reward, collections=['aux'])
+
+            # if it's not "initialized" yet, just report 0 to preserve tensorboard plot scale
+            best_reward_report = tf.cond(
+                tf.equal(self.best_avg_reward, self.initial_best_avg_reward),
+                true_fn=lambda: 0.0,
+                false_fn=lambda: self.best_avg_reward,
+            )
+            tf.summary.scalar('best_reward_ever', best_reward_report, collections=['aux'])
             tf.summary.scalar('avg_reward', self.avg_reward_placeholder, collections=['aux'])
 
             self.avg_length_placeholder = tf.placeholder(tf.float32, [])
@@ -289,7 +301,9 @@ class AgentCuriousA2C(AgentA2C):
         )
         return bonuses
 
-    def _curious_train_step(self, step, env_steps, observations, actions, values, discounted_rewards, next_obs):
+    def _curious_train_step(
+            self, step, env_steps, observations, actions, values, discounted_rewards, advantages, next_obs
+    ):
         """
         Actually do a single iteration of training. See the computational graph in the ctor to figure out
         the details.
@@ -303,6 +317,7 @@ class AgentCuriousA2C(AgentA2C):
                 self.selected_actions: actions,
                 self.value_estimates: values,
                 self.discounted_rewards: discounted_rewards,
+                self.advantages: advantages,
                 self.model.next_obs: next_obs,
             },
         )
@@ -332,6 +347,9 @@ class AgentCuriousA2C(AgentA2C):
         )
         observations = multi_env.initial_obs()
 
+        rew_running_mean_std = RunningMeanStd(max_past_samples=100000)
+        adv_running_mean_std = RunningMeanStd(max_past_samples=10000)
+
         def end_of_training(s): return s >= self.params.train_for_steps
 
         while not end_of_training(step):
@@ -354,6 +372,11 @@ class AgentCuriousA2C(AgentA2C):
                 bonuses = self._prediction_curiosity_bonus(observations, actions, next_obs)
                 rewards += bonuses
 
+                # normalize rewards, dividing by the running estimate of standard deviation
+                if self.params.normalize_rewards:
+                    rew_running_mean_std.update(rewards)
+                    rewards /= (np.sqrt(rew_running_mean_std.var) + EPS)
+
                 batch_rewards.append(rewards)
                 batch_dones.append(dones)
                 batch_next_obs.append(next_obs)
@@ -374,25 +397,33 @@ class AgentCuriousA2C(AgentA2C):
 
             batch_rewards = np.asarray(batch_rewards, np.float32).swapaxes(0, 1)
             batch_dones = np.asarray(batch_dones, np.bool).swapaxes(0, 1)
+            batch_values = np.asarray(batch_values, np.float32).swapaxes(0, 1)
             last_values = self._estimate_values(observations)
 
             gamma = self.params.gamma
-            discounted_rewards = []
-            for env_rewards, env_dones, last_value in zip(batch_rewards, batch_dones, last_values):
-                discounted_rewards.extend(self._calc_discounted_rewards(gamma, env_rewards, env_dones, last_value))
+            disc_rewards = []
+            for env_rewards, env_dones, val, last_value in zip(batch_rewards, batch_dones, batch_values, last_values):
+                disc_rewards.extend(self._calc_discounted_rewards(gamma, env_rewards, env_dones, val, last_value))
+            disc_rewards = np.asarray(disc_rewards, np.float32)
 
             # convert observations and estimations to meaningful n-step batches
             batch_obs_shape = (self.params.rollout * multi_env.num_envs, ) + observations[0].shape
             batch_obs = np.asarray(batch_obs, np.float32).swapaxes(0, 1).reshape(batch_obs_shape)
             batch_next_obs = np.asarray(batch_next_obs, np.float32).swapaxes(0, 1).reshape(batch_obs_shape)
             batch_actions = np.asarray(batch_actions, np.int32).swapaxes(0, 1).flatten()
-            batch_values = np.asarray(batch_values, np.float32).swapaxes(0, 1).flatten()
+            batch_values = batch_values.flatten()
+
+            advantages = disc_rewards - batch_values
+            if self.params.normalize_adv:
+                adv_running_mean_std.update(advantages)
+                advantages = (advantages - adv_running_mean_std.mean) / (np.sqrt(adv_running_mean_std.var) + EPS)
+            advantages = np.clip(advantages, -self.params.clip_advantage, self.params.clip_advantage)
 
             timing.experience = time.time() - timing.experience
             timing.train = time.time()
 
             step = self._curious_train_step(
-                step, env_steps, batch_obs, batch_actions, batch_values, discounted_rewards, batch_next_obs,
+                step, env_steps, batch_obs, batch_actions, batch_values, disc_rewards, advantages, batch_next_obs,
             )
             self._maybe_save(step, env_steps)
 

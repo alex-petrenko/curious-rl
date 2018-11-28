@@ -10,6 +10,7 @@ import numpy as np
 import tensorflow as tf
 from tensorflow.contrib import slim
 
+from algorithms.algo_utils import EPS
 from algorithms.env_wrappers import has_image_observations
 from algorithms.multi_env import MultiEnv
 from utils.utils import log, put_kernels_on_grid, AttrDict
@@ -119,11 +120,11 @@ class AgentA2C(AgentLearner):
 
             # components of the loss function
             self.initial_entropy_loss_coeff = 0.1
-            self.min_entropy_loss_coeff = 0.001
+            self.min_entropy_loss_coeff = 0.005
             self.value_loss_coeff = 1.0
 
             # training process
-            self.normalize_advantage = False
+            self.normalize_adv = True
             self.learning_rate = 1e-4
             self.clip_gradients = 5.0
             self.print_every = 50
@@ -158,8 +159,8 @@ class AgentA2C(AgentLearner):
         self.discounted_rewards = tf.placeholder(tf.float32, [None])  # estimate of total reward (rollout + value)
 
         advantages = self.discounted_rewards - self.value_estimates
-        if self.params.normalize_advantage:
-            advantages = advantages / tf.reduce_max(tf.abs(advantages))
+        if self.params.normalize_adv:
+            advantages = advantages / tf.reduce_max(tf.abs(advantages))  # that's a crude way
 
         # negative logarithm of the probabilities of actions
         neglogp_actions = tf.nn.sparse_softmax_cross_entropy_with_logits(
@@ -324,13 +325,25 @@ class AgentA2C(AgentLearner):
         return step
 
     @staticmethod
-    def _calc_discounted_rewards(gamma, rewards, dones, last_value):
+    def _calc_discounted_rewards(gamma, rewards, dones, values, last_value):
         """Calculate gamma-discounted rewards for an n-step A2C."""
-        cumulative = 0 if dones[-1] else last_value
+        def is_really_done(done_, r_):
+            return done_ and r_ > 1 - EPS
+
+        cumulative = 0 if is_really_done(dones[-1], rewards[-1]) else last_value
         discounted_rewards = []
         for rollout_step in reversed(range(len(rewards))):
-            r, done = rewards[rollout_step], dones[rollout_step]
-            cumulative = r + gamma * cumulative * (not done)
+            r = rewards[rollout_step]
+            done = dones[rollout_step]
+            really_done = is_really_done(done, r)
+
+            if really_done:
+                cumulative = r  # genuine end of the episode
+            elif done:
+                cumulative = r + gamma * values[rollout_step]  # terminated by timer
+            else:
+                cumulative = r + gamma * cumulative
+
             discounted_rewards.append(cumulative)
         return reversed(discounted_rewards)
 

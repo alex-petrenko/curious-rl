@@ -62,12 +62,13 @@ class AgentLearner(Agent):
         self.summary_rate_decay = LinearDecay([(0, 100), (1000000, 2000), (10000000, 10000)], staircase=100)
         self.save_rate_decay = LinearDecay([(0, 100), (1000000, 2000)], staircase=100)
 
-        self.best_avg_reward = tf.Variable(-1e3, dtype=tf.float64)
+        self.initial_best_avg_reward = tf.constant(-1e3)
+        self.best_avg_reward = tf.Variable(self.initial_best_avg_reward)
         self.total_env_steps = tf.Variable(0, dtype=tf.int64)
 
         def update_best_value(best_value, new_value):
             return tf.assign(best_value, tf.maximum(new_value, best_value))
-        self.avg_reward_placeholder = tf.placeholder(tf.float64, [], 'new_avg_reward')
+        self.avg_reward_placeholder = tf.placeholder(tf.float32, [], 'new_avg_reward')
         self.update_best_reward = update_best_value(self.best_avg_reward, self.avg_reward_placeholder)
         self.total_env_steps_placeholder = tf.placeholder(tf.int64, [], 'new_env_steps')
         self.update_env_steps = tf.assign(self.total_env_steps, self.total_env_steps_placeholder)
@@ -110,6 +111,7 @@ class AgentLearner(Agent):
 
     def _maybe_update_avg_reward(self, avg_reward, env_steps_this_session):
         if env_steps_this_session > self.params.stats_episodes * 20:
-            if avg_reward > self.best_avg_reward.eval(session=self.session) + 1e-9:
-                log.warn('New best reward %.6f!', avg_reward)
+            curr_best_reward = self.best_avg_reward.eval(session=self.session)
+            if avg_reward > curr_best_reward + 1e-6:
+                log.warn('New best reward %.6f (was %.6f)!', avg_reward, curr_best_reward)
                 self.session.run(self.update_best_reward, feed_dict={self.avg_reward_placeholder: avg_reward})
