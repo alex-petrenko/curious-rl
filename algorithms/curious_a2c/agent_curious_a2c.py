@@ -119,11 +119,11 @@ class AgentCuriousA2C(AgentA2C):
         def __init__(self, experiment_name):
             """Default parameter values set in ctor."""
             super(AgentCuriousA2C.Params, self).__init__(experiment_name)
-            self.icm_beta = 0.5  # in ICM, importance of training forward model vs inverse model
+            self.icm_beta = 0.9  # in ICM, importance of training forward model vs inverse model
             self.model_lr_scale = 10.0  # in ICM, importance of model loss vs actor-critic loss
             self.prediction_bonus_coeff = 0.02  # scaling factor for prediction bonus vs env rewards
 
-            self.clip_bonus = 0.1
+            self.clip_bonus = 0.05
             self.clip_advantage = 5
             self.normalize_rewards = False
 
