@@ -9,17 +9,18 @@ DOOM_W = DOOM_H = 42
 
 
 class DoomCfg:
-    def __init__(self, name, env_id, reward_scaling):
+    def __init__(self, name, env_id, reward_scaling, default_timeout):
         self.name = name
         self.env_id = env_id
         self.reward_scaling = reward_scaling
+        self.default_timeout = default_timeout
 
 
 DOOM_ENVS = [
-    DoomCfg('basic', 'VizdoomBasic-v0', 0.01),
-    DoomCfg('maze', 'VizdoomMyWayHome-v0', 1.0),
-    DoomCfg('maze_sparse', 'VizdoomMyWayHomeSparse-v0', 1.0),
-    DoomCfg('maze_very_sparse', 'VizdoomMyWayHomeVerySparse-v0', 1.0),
+    DoomCfg('basic', 'VizdoomBasic-v0', 0.01, 300),
+    DoomCfg('maze', 'VizdoomMyWayHome-v0', 1.0, 2100),
+    DoomCfg('maze_sparse', 'VizdoomMyWayHomeSparse-v0', 1.0, 2100),
+    DoomCfg('maze_very_sparse', 'VizdoomMyWayHomeVerySparse-v0', 1.0, 2100),
 ]
 
 
@@ -42,7 +43,9 @@ def make_doom_env(doom_cfg, mode='train'):
     env = obwrapper(env)
 
     env = ResizeAndGrayscaleWrapper(env, DOOM_W, DOOM_H)
-    env = TimeLimitWrapper(env, limit=2050, random_variation_steps=10)
+
+    timeout = doom_cfg.default_timeout - 10
+    env = TimeLimitWrapper(env, limit=timeout, random_variation_steps=5)
 
     if mode == 'test':
         # disable action repeat during test time
