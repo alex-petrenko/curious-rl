@@ -124,7 +124,7 @@ class AgentA2C(AgentLearner):
             self.value_loss_coeff = 1.0
 
             # training process
-            self.normalize_adv = True
+            self.normalize_adv = False
             self.learning_rate = 1e-4
             self.clip_gradients = 5.0
             self.print_every = 50
@@ -325,22 +325,13 @@ class AgentA2C(AgentLearner):
         return step
 
     @staticmethod
-    def _calc_discounted_rewards(gamma, rewards, dones, term_by_timer, values, last_value):
+    def _calc_discounted_rewards(gamma, rewards, dones, last_value):
         """Calculate gamma-discounted rewards for an n-step A2C."""
         cumulative = 0 if dones[-1] else last_value
         discounted_rewards = []
         for rollout_step in reversed(range(len(rewards))):
-            r = rewards[rollout_step]
-            done = dones[rollout_step]
-            timer = term_by_timer[rollout_step]
-
-            if done and not timer:
-                cumulative = r  # genuine end of the episode
-            elif done and timer:
-                cumulative = values[rollout_step]  # terminated by timer
-            else:
-                cumulative = r + gamma * cumulative  # regular discounted sum
-
+            r, done = rewards[rollout_step], dones[rollout_step]
+            cumulative = r + gamma * cumulative * (not done)
             discounted_rewards.append(cumulative)
         return reversed(discounted_rewards)
 

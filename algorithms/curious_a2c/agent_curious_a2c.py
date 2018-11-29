@@ -126,7 +126,6 @@ class AgentCuriousA2C(AgentA2C):
 
             self.clip_bonus = 0.05
             self.clip_advantage = 5
-            self.normalize_rewards = False
 
             self.forward_fc = 512
 
@@ -337,6 +336,26 @@ class AgentCuriousA2C(AgentA2C):
 
         return step
 
+    @staticmethod
+    def _calc_discounted_rewards_timer(gamma, rewards, dones, term_by_timer, values, last_value):
+        """Calculate gamma-discounted rewards for an n-step A2C."""
+        cumulative = 0 if dones[-1] else last_value
+        discounted_rewards = []
+        for rollout_step in reversed(range(len(rewards))):
+            r = rewards[rollout_step]
+            done = dones[rollout_step]
+            timer = term_by_timer[rollout_step]
+
+            if done and not timer:
+                cumulative = r  # genuine end of the episode
+            elif done and timer:
+                cumulative = values[rollout_step]  # terminated by timer
+            else:
+                cumulative = r + gamma * cumulative  # regular discounted sum
+
+            discounted_rewards.append(cumulative)
+        return reversed(discounted_rewards)
+
     def learn(self, step_callback=None):
         """
         Main training loop.
@@ -355,7 +374,6 @@ class AgentCuriousA2C(AgentA2C):
         )
         observations = multi_env.initial_obs()
 
-        rew_running_mean_std = RunningMeanStd(max_past_samples=100000)
         adv_running_mean_std = RunningMeanStd(max_past_samples=10000)
 
         def end_of_training(s): return s >= self.params.train_for_steps
@@ -380,11 +398,6 @@ class AgentCuriousA2C(AgentA2C):
                 # calculate curiosity bonus
                 bonuses = self._prediction_curiosity_bonus(observations, actions, next_obs)
                 rewards += bonuses
-
-                # normalize rewards, dividing by the running estimate of standard deviation
-                if self.params.normalize_rewards:
-                    rew_running_mean_std.update(rewards)
-                    rewards /= (np.sqrt(rew_running_mean_std.var) + EPS)
 
                 batch_rewards.append(rewards)
                 batch_dones.append(dones)
@@ -419,7 +432,7 @@ class AgentCuriousA2C(AgentA2C):
             gamma = self.params.gamma
             disc_rewards = []
             for i in range(len(batch_rewards)):
-                env_rewards = self._calc_discounted_rewards(
+                env_rewards = self._calc_discounted_rewards_timer(
                     gamma,
                     batch_rewards[i],
                     batch_dones[i],
