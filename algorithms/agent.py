@@ -50,7 +50,7 @@ class AgentLearner(Agent):
             self.use_gpu = True
             self.gpu_mem_fraction = 1.0
 
-            self.stats_episodes = 1000  # how many rewards to average to measure performance
+            self.stats_episodes = 100  # how many rewards to average to measure performance
 
     def __init__(self, params):
         super(AgentLearner, self).__init__(params)
@@ -109,8 +109,8 @@ class AgentLearner(Agent):
         summaries_every = self.summary_rate_decay.at(step)
         return (step + 1) % summaries_every == 0
 
-    def _maybe_update_avg_reward(self, avg_reward, env_steps_this_session):
-        if env_steps_this_session > self.params.stats_episodes * 20:
+    def _maybe_update_avg_reward(self, avg_reward, stats_num_episodes):
+        if stats_num_episodes > self.params.stats_episodes:
             curr_best_reward = self.best_avg_reward.eval(session=self.session)
             if avg_reward > curr_best_reward + 1e-6:
                 log.warn('New best reward %.6f (was %.6f)!', avg_reward, curr_best_reward)

@@ -120,12 +120,12 @@ class AgentCuriousA2C(AgentA2C):
         def __init__(self, experiment_name):
             """Default parameter values set in ctor."""
             super(AgentCuriousA2C.Params, self).__init__(experiment_name)
-            self.icm_beta = 0.99  # in ICM, importance of training forward model vs inverse model
-            self.model_lr_scale = 100.0  # in ICM, importance of model loss vs actor-critic loss
+            self.icm_beta = 0.9  # in ICM, importance of training forward model vs inverse model
+            self.model_lr_scale = 10.0  # in ICM, importance of model loss vs actor-critic loss
             self.prediction_bonus_coeff = 0.02  # scaling factor for prediction bonus vs env rewards
 
             self.clip_bonus = 0.05
-            self.clip_advantage = 5
+            self.clip_advantage = 10
 
             self.forward_fc = 512
 
@@ -199,7 +199,13 @@ class AgentCuriousA2C(AgentA2C):
         inverse_loss = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(
             logits=self.model.predicted_actions, labels=self.selected_actions,
         ))
-        model_loss = forward_loss * self.params.icm_beta + inverse_loss * (1 - self.params.icm_beta)
+
+        icm_beta = tf.cond(
+            tf.greater(self.total_env_steps, 5000000),
+            true_fn=lambda: 1.0,
+            false_fn=lambda: self.params.icm_beta,
+        )
+        model_loss = forward_loss * icm_beta + inverse_loss * (1 - icm_beta)
         model_loss = self.params.model_lr_scale * model_loss
 
         # regularization
@@ -472,7 +478,7 @@ class AgentCuriousA2C(AgentA2C):
 
             self._maybe_print(step, avg_reward, avg_length, fps, timing)
             self._maybe_aux_summaries(step, env_steps, avg_reward, avg_length)
-            self._maybe_update_avg_reward(avg_reward, env_steps - env_steps_initial)
+            self._maybe_update_avg_reward(avg_reward, multi_env.stats_num_episodes())
 
             if step_callback is not None:
                 step_callback(locals(), globals())

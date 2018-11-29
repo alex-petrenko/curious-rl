@@ -120,13 +120,13 @@ class AgentA2C(AgentLearner):
 
             # components of the loss function
             self.initial_entropy_loss_coeff = 0.1
-            self.min_entropy_loss_coeff = 0.005
+            self.min_entropy_loss_coeff = 0.002
             self.value_loss_coeff = 1.0
 
             # training process
             self.normalize_adv = False
             self.learning_rate = 1e-4
-            self.clip_gradients = 5.0
+            self.clip_gradients = 20.0
             self.print_every = 50
             self.train_for_steps = 5000000
             self.use_gpu = True

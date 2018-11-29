@@ -119,10 +119,10 @@ class MultiEnv:
         self.observation_space = self.workers[0].envs[0].observation_space
 
         self.curr_episode_reward = [0] * num_envs
-        self.episode_rewards = [[]] * num_envs
+        self.episode_rewards = [[] for _ in range(num_envs)]
 
         self.curr_episode_duration = [0] * num_envs
-        self.episode_lengths = [[]] * num_envs
+        self.episode_lengths = [[] for _ in range(num_envs)]
 
         self.stats_episodes = stats_episodes
 
@@ -160,8 +160,10 @@ class MultiEnv:
             self.curr_episode_duration[i] += step_len
 
             if dones[i]:
-                self._update_episode_stats(i, self.episode_rewards, self.curr_episode_reward)
-                self._update_episode_stats(i, self.episode_lengths, self.curr_episode_duration)
+                self._update_episode_stats(self.episode_rewards[i], self.curr_episode_reward[i])
+                self.curr_episode_reward[i] = 0
+                self._update_episode_stats(self.episode_lengths[i], self.curr_episode_duration[i])
+                self.curr_episode_duration[i] = 0
 
         return observations, rewards, dones, infos
 
@@ -196,12 +198,11 @@ class MultiEnv:
             worker.step_queue.put((None, StepType.REAL))  # terminate
             worker.process.join()
 
-    def _update_episode_stats(self, i, episode_stats, curr_episode_data):
+    def _update_episode_stats(self, episode_stats, curr_episode_data):
         episode_stats_target_size = 2 * (self.stats_episodes // self.num_envs)
-        episode_stats[i].append(curr_episode_data[i])
-        if len(episode_stats[i]) > episode_stats_target_size * 2:
-            del episode_stats[i][:episode_stats_target_size]
-        curr_episode_data[i] = 0
+        episode_stats.append(curr_episode_data)
+        if len(episode_stats) > episode_stats_target_size * 2:
+            del episode_stats[:episode_stats_target_size]
 
     def _calc_episode_stats(self, episode_data, n):
         n = n // self.num_envs
