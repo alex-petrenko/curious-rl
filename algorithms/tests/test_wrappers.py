@@ -3,9 +3,12 @@ import numpy as np
 
 from unittest import TestCase
 
+from gym import spaces
+
 from algorithms.agent import AgentRandom
+from algorithms.algo_utils import EPS
 from algorithms.env_wrappers import NormalizeWrapper, StackFramesWrapper, unwrap_env, ResizeAndGrayscaleWrapper, \
-    SkipAndStackFramesWrapper, TimeLimitWrapper
+    SkipAndStackFramesWrapper, TimeLimitWrapper, RemainingTimeWrapper
 from algorithms.multi_env import MultiEnv
 from utils.doom.doom_utils import make_doom_env, DOOM_W, DOOM_H, env_by_name
 
@@ -90,6 +93,28 @@ class TestWrappers(TestCase):
         self.assertGreaterEqual(steps, timelimit - 3)
         self.assertLessEqual(steps, timelimit + 3)
         self.assertTrue(info[TimeLimitWrapper.terminated_by_timer])
+        env.close()
+
+    def test_timer_obs(self):
+        env = gym.make(TEST_ENV)
+        timelimit = 50
+        env = TimeLimitWrapper(env, timelimit, 0)
+        env = RemainingTimeWrapper(env)
+
+        self.assertIsInstance(env.observation_space, spaces.Dict)
+        self.assertIn('timer', env.observation_space.spaces)
+        self.assertIn('obs', env.observation_space.spaces)
+
+        env.reset()
+        obs, done = None, False
+        while not done:
+            obs, _, done, _ = env.step(0)
+            self.assertGreaterEqual(obs['timer'], 0.0)
+            self.assertLess(obs['timer'], 1.0 + EPS)
+            self.assertIn('obs', obs)
+        self.assertAlmostEqual(obs['timer'], 1.0)
+
+        env.close()
 
     def test_unwrap(self):
         env = make_doom_env(env_by_name(TEST_ENV_NAME))

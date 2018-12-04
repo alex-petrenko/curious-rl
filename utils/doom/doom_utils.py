@@ -2,7 +2,7 @@ import gym
 import vizdoomgym
 
 from algorithms.env_wrappers import ResizeAndGrayscaleWrapper, StackFramesWrapper, RewardScalingWrapper, \
-    SkipAndStackFramesWrapper, TimeLimitWrapper
+    SkipAndStackFramesWrapper, TimeLimitWrapper, RemainingTimeWrapper
 from utils.doom.wrappers import set_resolution
 
 DOOM_W = DOOM_H = 42
@@ -50,9 +50,11 @@ def make_doom_env(doom_cfg, mode='train'):
     if mode == 'test':
         # disable action repeat during test time
         env = StackFramesWrapper(env, stack_past_frames=4)
+        # env = SkipAndStackFramesWrapper(env, num_frames=4)
     else:
         # during training we repeat the last action n times and stack the same number of frames to capture dynamics
         env = SkipAndStackFramesWrapper(env, num_frames=4)
 
     env = RewardScalingWrapper(env, doom_cfg.reward_scaling)
+    env = RemainingTimeWrapper(env)
     return env

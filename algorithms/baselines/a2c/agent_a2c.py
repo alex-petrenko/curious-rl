@@ -10,7 +10,6 @@ import numpy as np
 import tensorflow as tf
 from tensorflow.contrib import slim
 
-from algorithms.algo_utils import EPS
 from algorithms.env_wrappers import has_image_observations
 from algorithms.multi_env import MultiEnv
 from utils.utils import log, put_kernels_on_grid, AttrDict
@@ -28,7 +27,7 @@ class Policy:
     def __init__(self, env, img_model_name, fc_layers, fc_size, lowdim_model_name, past_frames):
         self.regularizer = tf.contrib.layers.l2_regularizer(scale=1e-10)
 
-        image_obs = has_image_observations(env)
+        image_obs = has_image_observations(env.observation_space)
         obs_shape = list(env.observation_space.shape)
         num_actions = env.action_space.n
 
@@ -126,7 +125,7 @@ class AgentA2C(AgentLearner):
             # training process
             self.normalize_adv = False
             self.learning_rate = 1e-4
-            self.clip_gradients = 20.0
+            self.clip_gradients = 40.0
             self.print_every = 50
             self.train_for_steps = 5000000
             self.use_gpu = True

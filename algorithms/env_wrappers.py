@@ -6,22 +6,22 @@ Gym env wrappers that make the environment suitable for the RL algorithms.
 
 import cv2
 import gym
-import copy
 import numpy as np
 
-from gym import spaces, RewardWrapper
 from collections import deque
 
-from utils.utils import numpy_all_the_way
+from gym import spaces, RewardWrapper, ObservationWrapper
+
+from utils.utils import numpy_all_the_way, log
 
 
 def unwrap_env(wrapped_env):
     return wrapped_env.unwrapped
 
 
-def has_image_observations(env):
+def has_image_observations(observation_space):
     """It's a heuristic."""
-    return len(env.observation_space.shape) >= 2
+    return len(observation_space.shape) >= 2
 
 
 class StackFramesWrapper(gym.core.Wrapper):
@@ -37,7 +37,7 @@ class StackFramesWrapper(gym.core.Wrapper):
         self._stack_past = stack_past_frames
         self._frames = None
 
-        self._image_obs = has_image_observations(env)
+        self._image_obs = has_image_observations(env.observation_space)
 
         if self._image_obs:
             new_obs_space_shape = env.observation_space.shape + (stack_past_frames,)
@@ -187,9 +187,41 @@ class TimeLimitWrapper(gym.core.Wrapper):
     def step(self, action):
         observation, reward, done, info = self.env.step(action)
         self._num_steps += 1
-        if not done:
+        if done:
+            log.info('Completed in %d steps', self._num_steps)
+        else:
             if self._num_steps >= self._terminate_in:
                 done = True
                 info[self.terminated_by_timer] = True
 
         return observation, reward, done, info
+
+
+class RemainingTimeWrapper(ObservationWrapper):
+    """Designed to be used together with TimeLimitWrapper."""
+
+    def __init__(self, env):
+        super(RemainingTimeWrapper, self).__init__(env)
+
+        # adding an additional input dimension to indicate time left before the end of episode
+        self.observation_space = spaces.Dict({
+            'timer': spaces.Box(0.0, 1.0, shape=[1], dtype=np.float32),
+            'obs': env.observation_space,
+        })
+
+        wrapped_env = env
+        while not isinstance(wrapped_env, TimeLimitWrapper):
+            wrapped_env = wrapped_env.env
+            if not isinstance(wrapped_env, gym.core.Wrapper):
+                raise Exception('RemainingTimeWrapper is supposed to wrap TimeLimitWrapper')
+        self.time_limit_wrapper = wrapped_env
+
+    def observation(self, observation):
+        num_steps = self.time_limit_wrapper._num_steps
+        terminate_in = self.time_limit_wrapper._terminate_in
+
+        dict_obs = {
+            'timer': num_steps / terminate_in,
+            'obs': observation,
+        }
+        return dict_obs

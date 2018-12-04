@@ -9,18 +9,94 @@ import tensorflow as tf
 from tensorflow.contrib import slim
 
 from algorithms.algo_utils import RunningMeanStd, EPS
-from algorithms.baselines.a2c.agent_a2c import AgentA2C, Policy
+from algorithms.baselines.a2c.agent_a2c import AgentA2C
 from algorithms.env_wrappers import has_image_observations
 from algorithms.multi_env import MultiEnv
 from algorithms.tf_utils import dense, count_total_parameters, conv
 from algorithms.utils import summaries_dir
-from utils.utils import log, AttrDict
+from utils.distributions import CategoricalProbabilityDistribution
+from utils.utils import log, AttrDict, put_kernels_on_grid
+
+
+class CuriousA2CPolicy:
+    """A class that represents both the actor's policy and the value estimator."""
+
+    def __init__(self, env, observations, timer, params):
+        self.regularizer = tf.contrib.layers.l2_regularizer(scale=1e-10)
+
+        img_model_name = params.image_model_name
+        fc_layers = params.fc_layers
+        fc_size = params.fc_size
+        lowdim_model_name = params.lowdim_model_name
+        past_frames = params.stack_past_frames
+
+        image_obs = has_image_observations(env.observation_space.spaces['obs'])
+        num_actions = env.action_space.n
+
+        if image_obs:
+            # convolutions
+            if img_model_name == 'convnet_simple':
+                conv_filters = self._convnet_simple(observations, [(32, 3, 2)] * 4)
+            else:
+                raise Exception('Unknown model name')
+
+            encoded_input = tf.contrib.layers.flatten(conv_filters)
+        else:
+            # low-dimensional input
+            if lowdim_model_name == 'simple_fc':
+                frames = tf.split(observations, past_frames, axis=1)
+                fc_encoder = tf.make_template('fc_encoder', self._fc_frame_encoder, create_scope_now_=True)
+                encoded_frames = [fc_encoder(frame) for frame in frames]
+                encoded_input = tf.concat(encoded_frames, axis=1)
+            else:
+                raise Exception('Unknown lowdim model name')
+
+        encoded_input_with_timer = tf.concat([encoded_input, tf.expand_dims(timer, 1)], axis=1)
+
+        fc = encoded_input_with_timer
+        for _ in range(fc_layers - 1):
+            fc = dense(fc, fc_size, self.regularizer)
+
+        # fully-connected layers to generate actions
+        actions_fc = dense(fc, fc_size // 2, self.regularizer)
+        self.actions = tf.contrib.layers.fully_connected(actions_fc, num_actions, activation_fn=None)
+        self.best_action_deterministic = tf.argmax(self.actions, axis=1)
+        self.actions_prob_distribution = CategoricalProbabilityDistribution(self.actions)
+        self.act = self.actions_prob_distribution.sample()
+
+        value_fc = dense(fc, fc_size // 2, self.regularizer)
+        self.value = tf.squeeze(tf.contrib.layers.fully_connected(value_fc, 1, activation_fn=None), axis=[1])
+
+        if image_obs:
+            # summaries
+            with tf.variable_scope('conv1', reuse=True):
+                weights = tf.get_variable('weights')
+            with tf.name_scope('a2c_agent_summary_conv'):
+                if weights.shape[2].value in [1, 3, 4]:
+                    tf.summary.image('conv1/kernels', put_kernels_on_grid(weights), max_outputs=1)
+
+        log.info('Total parameters in the model: %d', count_total_parameters())
+
+    def _fc_frame_encoder(self, x):
+        return dense(x, 128, self.regularizer)
+
+    def _conv(self, x, filters, kernel, stride, scope=None):
+        return conv(x, filters, kernel, stride=stride, regularizer=self.regularizer, scope=scope)
+
+    def _convnet_simple(self, x, convs):
+        """Basic stacked convnet."""
+        layer = x
+        layer_idx = 1
+        for filters, kernel, stride in convs:
+            layer = self._conv(layer, filters, kernel, stride, 'conv' + str(layer_idx))
+            layer_idx += 1
+        return layer
 
 
 class Model:
     """Single class for inverse and forward dynamics model."""
 
-    def __init__(self, env, obs, actions, past_frames, forward_fc):
+    def __init__(self, env, obs, next_obs, actions, past_frames, forward_fc):
         """
         :param obs - placeholder for observations
         :param actions - placeholder for selected actions
@@ -28,14 +104,8 @@ class Model:
 
         self.regularizer = tf.contrib.layers.l2_regularizer(scale=1e-10)
 
-        image_obs = has_image_observations(env)
-        obs_shape = list(env.observation_space.shape)
+        image_obs = has_image_observations(env.observation_space.spaces['obs'])
         num_actions = env.action_space.n
-
-        # process observations
-        input_shape = [None] + obs_shape  # add batch dimension
-        self.observations = obs
-        self.next_obs = tf.placeholder(tf.float32, shape=input_shape)
 
         if image_obs:
             # convolutions
@@ -45,10 +115,10 @@ class Model:
                 create_scope_now_=True,
                 convs=[(32, 3, 2)] * 4,
             )
-            encoded_obs = conv_encoder(obs=self.observations)
+            encoded_obs = conv_encoder(obs=obs)
             encoded_obs = tf.contrib.layers.flatten(encoded_obs)
 
-            encoded_next_obs = conv_encoder(obs=self.next_obs)
+            encoded_next_obs = conv_encoder(obs=next_obs)
             self.encoded_next_obs = tf.contrib.layers.flatten(encoded_next_obs)
         else:
             # low-dimensional input
@@ -58,8 +128,8 @@ class Model:
                 create_scope_now_=True,
                 past_frames=past_frames,
             )
-            encoded_obs = lowdim_encoder(obs=self.observations)
-            self.encoded_next_obs = lowdim_encoder(obs=self.next_obs)
+            encoded_obs = lowdim_encoder(obs=obs)
+            self.encoded_next_obs = lowdim_encoder(obs=next_obs)
 
         feature_vector_size = encoded_obs.get_shape().as_list()[-1]
         log.info('Feature vector size in ICM: %d', feature_vector_size)
@@ -68,7 +138,7 @@ class Model:
 
         # forward model
         forward_model_input = tf.concat(
-            [tf.stop_gradient(encoded_obs), actions_one_hot],  # do not backpropagate to encoder!
+            [encoded_obs, actions_one_hot],
             axis=1,
         )
         forward_model_hidden = dense(forward_model_input, forward_fc, self.regularizer)
@@ -120,11 +190,11 @@ class AgentCuriousA2C(AgentA2C):
         def __init__(self, experiment_name):
             """Default parameter values set in ctor."""
             super(AgentCuriousA2C.Params, self).__init__(experiment_name)
-            self.icm_beta = 0.9  # in ICM, importance of training forward model vs inverse model
+            self.icm_beta = 0.2  # in ICM, importance of training forward model vs inverse model
             self.model_lr_scale = 10.0  # in ICM, importance of model loss vs actor-critic loss
-            self.prediction_bonus_coeff = 0.02  # scaling factor for prediction bonus vs env rewards
+            self.prediction_bonus_coeff = 0.01  # scaling factor for prediction bonus vs env rewards
 
-            self.clip_bonus = 0.05
+            self.clip_bonus = 0.1
             self.clip_advantage = 10
 
             self.forward_fc = 512
@@ -147,17 +217,17 @@ class AgentCuriousA2C(AgentA2C):
         self.advantages = tf.placeholder(tf.float32, [None])
 
         env = make_env_func()  # we need it to query observation shape, number of actions, etc.
-        self.policy = Policy(
-            env,
-            params.image_model_name,
-            params.fc_layers,
-            params.fc_size,
-            params.lowdim_model_name,
-            params.stack_past_frames,
-        )
+
+        obs_shape = list(env.observation_space.spaces['obs'].shape)
+        input_shape = [None] + obs_shape  # add batch dimension
+        self.observations = tf.placeholder(tf.float32, shape=input_shape)
+        self.next_obs = tf.placeholder(tf.float32, shape=input_shape)
+        self.timer = tf.placeholder(tf.float32, shape=[None])
+
+        self.policy = CuriousA2CPolicy(env, self.observations, self.timer, params)
 
         self.model = Model(
-            env, self.policy.observations, self.selected_actions, params.stack_past_frames, params.forward_fc,
+            env, self.observations, self.next_obs, self.selected_actions, params.stack_past_frames, params.forward_fc,
         )
 
         env.close()
@@ -190,22 +260,16 @@ class AgentCuriousA2C(AgentA2C):
         a2c_loss = action_loss + entropy_loss + value_loss
 
         # model losses
-        forward_loss_batch = tf.square(
-            tf.stop_gradient(self.model.encoded_next_obs) - self.model.predicted_obs,  # do not backprop to encoder!
-        )
-        forward_loss_batch = tf.reduce_mean(forward_loss_batch, axis=1)
+        forward_loss_batch = 0.5 * tf.square(self.model.encoded_next_obs - self.model.predicted_obs)
+        forward_loss_batch = 288.0 * tf.reduce_mean(forward_loss_batch, axis=1)
         forward_loss = tf.reduce_mean(forward_loss_batch)
 
         inverse_loss = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(
             logits=self.model.predicted_actions, labels=self.selected_actions,
         ))
 
-        icm_beta = tf.cond(
-            tf.greater(self.total_env_steps, 5000000),
-            true_fn=lambda: 1.0,
-            false_fn=lambda: self.params.icm_beta,
-        )
-        model_loss = forward_loss * icm_beta + inverse_loss * (1 - icm_beta)
+        icm_beta = self.params.icm_beta
+        model_loss = forward_loss * icm_beta + inverse_loss * (1.0 - icm_beta)
         model_loss = self.params.model_lr_scale * model_loss
 
         # regularization
@@ -228,15 +292,15 @@ class AgentCuriousA2C(AgentA2C):
 
         # summaries for the agent and the training process
         with tf.name_scope('a2c_agent_summary'):
-            if len(self.policy.observations.shape) >= 4:
+            if len(self.observations.shape) >= 4:
                 tf.summary.image(
                     'observations',
-                    self.policy.observations[:, :, :, :3],  # first three channels
+                    self.observations[:, :, :, :3],  # first three channels
                     max_outputs=8,
                 )
                 # output also last channel
-                if self.policy.observations.shape[-1].value > 4:
-                    tf.summary.image('observations_last_channel', self.policy.observations[:, :, :, -1:])
+                if self.observations.shape[-1].value > 4:
+                    tf.summary.image('observations_last_channel', self.observations[:, :, :, -1:])
 
             tf.summary.scalar('disc_rewards_avg', tf.reduce_mean(self.discounted_rewards))
             tf.summary.scalar('disc_rewards_max', tf.reduce_max(self.discounted_rewards))
@@ -303,19 +367,59 @@ class AgentCuriousA2C(AgentA2C):
         log.warn('curious a2c variables:')
         slim.model_analyzer.analyze_vars(all_vars, print_info=True)
 
+    @staticmethod
+    def _extract_keys(list_of_dicts, *keys):
+        res = []
+        for k in keys:
+            res.append([d[k] for d in list_of_dicts])
+        return tuple(res)
+
+    def best_action(self, observation, deterministic=False):
+        obs, timer = self._extract_keys([observation], 'obs', 'timer')
+        actions, _ = self._policy_step_timer(obs, timer, deterministic)
+        return actions[0]
+
+    def _policy_step_timer(self, observations, timer, deterministic=False):
+        """
+        Select the best action by sampling from the distribution generated by the policy. Also estimate the
+        value for the currently observed environment state.
+        """
+        ops = [
+            self.policy.best_action_deterministic if deterministic else self.policy.act,
+            self.policy.value,
+        ]
+        actions, values = self.session.run(
+            ops,
+            feed_dict={
+                self.observations: observations,
+                self.timer: timer,
+            },
+        )
+        return actions, values
+
+    def _estimate_values_timer(self, observations, timer):
+        values = self.session.run(
+            self.policy.value,
+            feed_dict={
+                self.observations: observations,
+                self.timer: timer,
+            },
+        )
+        return values
+
     def _prediction_curiosity_bonus(self, observations, actions, next_obs):
         bonuses = self.session.run(
             self.prediction_curiosity_bonus,
             feed_dict={
-                self.policy.observations: observations,
                 self.selected_actions: actions,
-                self.model.next_obs: next_obs,
+                self.observations: observations,
+                self.next_obs: next_obs,
             }
         )
         return bonuses
 
     def _curious_train_step(
-            self, step, env_steps, observations, actions, values, discounted_rewards, advantages, next_obs
+            self, step, env_steps, observations, timer, actions, values, discounted_rewards, advantages, next_obs
     ):
         """
         Actually do a single iteration of training. See the computational graph in the ctor to figure out
@@ -326,12 +430,13 @@ class AgentCuriousA2C(AgentA2C):
         result = self.session.run(
             [self.train] + summaries,
             feed_dict={
-                self.policy.observations: observations,
+                self.observations: observations,
+                self.timer: timer,
                 self.selected_actions: actions,
                 self.value_estimates: values,
                 self.discounted_rewards: discounted_rewards,
                 self.advantages: advantages,
-                self.model.next_obs: next_obs,
+                self.next_obs: next_obs,
             },
         )
 
@@ -341,26 +446,6 @@ class AgentCuriousA2C(AgentA2C):
             self.summary_writer.add_summary(summary, global_step=env_steps)
 
         return step
-
-    @staticmethod
-    def _calc_discounted_rewards_timer(gamma, rewards, dones, term_by_timer, values, last_value):
-        """Calculate gamma-discounted rewards for an n-step A2C."""
-        cumulative = 0 if dones[-1] else last_value
-        discounted_rewards = []
-        for rollout_step in reversed(range(len(rewards))):
-            r = rewards[rollout_step]
-            done = dones[rollout_step]
-            timer = term_by_timer[rollout_step]
-
-            if done and not timer:
-                cumulative = r  # genuine end of the episode
-            elif done and timer:
-                cumulative = values[rollout_step]  # terminated by timer
-            else:
-                cumulative = r + gamma * cumulative  # regular discounted sum
-
-            discounted_rewards.append(cumulative)
-        return reversed(discounted_rewards)
 
     def learn(self, step_callback=None):
         """
@@ -378,7 +463,7 @@ class AgentCuriousA2C(AgentA2C):
             make_env_func=self.make_env_func,
             stats_episodes=self.params.stats_episodes,
         )
-        observations = multi_env.initial_obs()
+        img_obs, timer_obs = self._extract_keys(multi_env.initial_obs(), 'obs', 'timer')
 
         adv_running_mean_std = RunningMeanStd(max_past_samples=10000)
 
@@ -389,30 +474,28 @@ class AgentCuriousA2C(AgentA2C):
             experience_start = time.time()
 
             env_steps_before_batch = env_steps
-            batch_obs = [observations]
-            env_steps += len(observations)
+            batch_obs, batch_timer = [img_obs], [timer_obs]
+            env_steps += len(img_obs)
             batch_actions, batch_values, batch_rewards, batch_dones, batch_next_obs = [], [], [], [], []
-            terminated_by_timer = []
             for rollout_step in range(self.params.rollout):
-                actions, values = self._policy_step(observations)
+                actions, values = self._policy_step_timer(img_obs, timer_obs)
                 batch_actions.append(actions)
                 batch_values.append(values)
 
                 # wait for all the workers to complete an environment step
                 next_obs, rewards, dones, infos = multi_env.step(actions)
+                next_img_obs, next_timer = self._extract_keys(next_obs, 'obs', 'timer')
 
                 # calculate curiosity bonus
-                bonuses = self._prediction_curiosity_bonus(observations, actions, next_obs)
+                bonuses = self._prediction_curiosity_bonus(img_obs, actions, next_img_obs)
                 rewards += bonuses
 
                 batch_rewards.append(rewards)
                 batch_dones.append(dones)
-                batch_next_obs.append(next_obs)
-                terminated_by_timer.append(
-                    ['terminated_by_timer' in info and info['terminated_by_timer'] for info in infos]
-                )
+                batch_next_obs.append(next_img_obs)
 
-                observations = next_obs
+                img_obs = next_img_obs
+                timer_obs = next_timer
 
                 if infos is not None and 'num_frames' in infos[0]:
                     env_steps += sum((info['num_frames'] for info in infos))
@@ -421,39 +504,33 @@ class AgentCuriousA2C(AgentA2C):
 
                 if rollout_step != self.params.rollout - 1:
                     # we don't need the newest observation in the training batch, already have enough
-                    batch_obs.append(observations)
+                    batch_obs.append(img_obs)
+                    batch_timer.append(timer_obs)
 
             assert len(batch_obs) == len(batch_rewards)
             assert len(batch_obs) == len(batch_next_obs)
 
             batch_rewards = np.asarray(batch_rewards, np.float32).swapaxes(0, 1)
             batch_dones = np.asarray(batch_dones, np.bool).swapaxes(0, 1)
-            terminated_by_timer = np.asarray(terminated_by_timer, np.bool).swapaxes(0, 1)
             batch_values = np.asarray(batch_values, np.float32).swapaxes(0, 1)
 
             # Last value won't be valid for envs with done=True (because env automatically resets and shows 1st
             # observation of the next episode. But that's okay, because we should never use last_value in this case.
-            last_values = self._estimate_values(observations)
+            last_values = self._estimate_values_timer(img_obs, timer_obs)
 
             gamma = self.params.gamma
             disc_rewards = []
             for i in range(len(batch_rewards)):
-                env_rewards = self._calc_discounted_rewards_timer(
-                    gamma,
-                    batch_rewards[i],
-                    batch_dones[i],
-                    terminated_by_timer[i],
-                    batch_values[i],
-                    last_values[i],
-                )
+                env_rewards = self._calc_discounted_rewards(gamma, batch_rewards[i], batch_dones[i], last_values[i])
                 disc_rewards.extend(env_rewards)
             disc_rewards = np.asarray(disc_rewards, np.float32)
 
             # convert observations and estimations to meaningful n-step batches
-            batch_obs_shape = (self.params.rollout * multi_env.num_envs, ) + observations[0].shape
+            batch_obs_shape = (self.params.rollout * multi_env.num_envs, ) + img_obs[0].shape
             batch_obs = np.asarray(batch_obs, np.float32).swapaxes(0, 1).reshape(batch_obs_shape)
             batch_next_obs = np.asarray(batch_next_obs, np.float32).swapaxes(0, 1).reshape(batch_obs_shape)
             batch_actions = np.asarray(batch_actions, np.int32).swapaxes(0, 1).flatten()
+            batch_timer = np.asarray(batch_timer, np.float32).swapaxes(0, 1).flatten()
             batch_values = batch_values.flatten()
 
             advantages = disc_rewards - batch_values
@@ -466,7 +543,15 @@ class AgentCuriousA2C(AgentA2C):
             timing.train = time.time()
 
             step = self._curious_train_step(
-                step, env_steps, batch_obs, batch_actions, batch_values, disc_rewards, advantages, batch_next_obs,
+                step,
+                env_steps,
+                batch_obs,
+                batch_timer,
+                batch_actions,
+                batch_values,
+                disc_rewards,
+                advantages,
+                batch_next_obs,
             )
             self._maybe_save(step, env_steps)
 
