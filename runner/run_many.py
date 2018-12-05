@@ -52,8 +52,8 @@ def run_many(run_description):
 
 def main():
     """Script entry point."""
-    from runner.run_descriptions.runs.test_doom import DOOM_TEST_RUN
-    return run_many(DOOM_TEST_RUN)
+    from runner.run_descriptions.runs.curious_vs_vanilla import DOOM_CURIOUS_VS_VANILLA
+    return run_many(DOOM_CURIOUS_VS_VANILLA)
 
 
 if __name__ == '__main__':
