@@ -85,7 +85,7 @@ class AgentLearner(Agent):
             log_device_placement=False,
         )
         self.session = tf.Session(config=config)
-        checkpoint_dir = model_dir(self.params.experiment_name())
+        checkpoint_dir = model_dir(self.params.experiment_dir())
         try:
             self.saver.restore(self.session, tf.train.latest_checkpoint(checkpoint_dir=checkpoint_dir))
         except ValueError:
@@ -101,7 +101,7 @@ class AgentLearner(Agent):
         save_every = self.save_rate_decay.at(step)
         if (step + 1) % save_every == 0:
             log.info('Training step #%d, env steps: %d, saving...', step, env_steps)
-            saver_path = model_dir(self.params.experiment_name()) + '/' + self.__class__.__name__
+            saver_path = model_dir(self.params.experiment_dir()) + '/' + self.__class__.__name__
             self.session.run(self.update_env_steps, feed_dict={self.total_env_steps_placeholder: env_steps})
             self.saver.save(self.session, saver_path, global_step=step)
 

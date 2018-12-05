@@ -29,24 +29,21 @@ def experiments_dir():
     return ensure_dir_exists(join(project_root(), 'train_dir'))
 
 
-def experiment_dir(experiment):
-    return ensure_dir_exists(join(experiments_dir(), experiment))
+def experiment_dir(experiment, experiments_root=None):
+    if experiments_root is None:
+        experiments_root = experiments_dir()
+    else:
+        experiments_root = join(experiments_dir(), experiments_root)
+
+    return ensure_dir_exists(join(experiments_root, experiment))
 
 
-def model_dir(experiment):
-    return ensure_dir_exists(join(experiment_dir(experiment), '.model'))
+def model_dir(experiment_dir_):
+    return ensure_dir_exists(join(experiment_dir_, '.model'))
 
 
-def stats_dir(experiment):
-    return ensure_dir_exists(join(experiment_dir(experiment), '.stats'))
-
-
-def summaries_dir(experiment):
-    return ensure_dir_exists(join(experiment_dir(experiment), '.summary'))
-
-
-def vis_dir(experiment):
-    return ensure_dir_exists(join(experiment_dir(experiment), '.vis'))
+def summaries_dir(experiment_dir_):
+    return ensure_dir_exists(join(experiment_dir_, '.summary'))
 
 
 # Keeping track of experiments

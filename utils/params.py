@@ -10,8 +10,11 @@ from utils.utils import log
 # noinspection PyMethodMayBeStatic
 class Params:
     def __init__(self, experiment_name):
+        self.experiments_root = None
+
         # internal params, not for CLI
         self._experiment_name = experiment_name
+
         self._command_line = None
         self._params_serialized = False
 
@@ -19,10 +22,11 @@ class Params:
         return ''
 
     def _params_file(self):
-        return join(experiment_dir(self._experiment_name), self.filename_prefix() + 'params.json')
+        params_filename = self.filename_prefix() + 'params.json'
+        return join(self.experiment_dir(), params_filename)
 
-    def experiment_name(self):
-        return self._experiment_name
+    def experiment_dir(self):
+        return experiment_dir(self._experiment_name, self.experiments_root)
 
     def set_command_line(self, argv):
         self._command_line = ' '.join(argv)

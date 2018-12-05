@@ -341,7 +341,7 @@ class AgentCuriousA2C(AgentA2C):
 
             tf.summary.scalar('loss', loss)
 
-            summary_dir = summaries_dir(self.params.experiment_name())
+            summary_dir = summaries_dir(self.params.experiment_dir())
             self.summary_writer = tf.summary.FileWriter(summary_dir)
 
             self.all_summaries = tf.summary.merge_all()

@@ -228,7 +228,7 @@ class AgentA2C(AgentLearner):
             tf.summary.scalar('regularization_loss', regularization_loss)
             tf.summary.scalar('loss', loss)
 
-            summary_dir = summaries_dir(self.params.experiment_name())
+            summary_dir = summaries_dir(self.params.experiment_dir())
             self.summary_writer = tf.summary.FileWriter(summary_dir)
 
             self.all_summaries = tf.summary.merge_all()
