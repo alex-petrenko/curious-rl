@@ -8,7 +8,7 @@ import numpy as np
 import tensorflow as tf
 from tensorflow.contrib import slim
 
-from algorithms.algo_utils import RunningMeanStd, EPS
+from algorithms.algo_utils import RunningMeanStd, EPS, extract_keys
 from algorithms.baselines.a2c.agent_a2c import AgentA2C
 from algorithms.env_wrappers import has_image_observations
 from algorithms.multi_env import MultiEnv
@@ -367,15 +367,8 @@ class AgentCuriousA2C(AgentA2C):
         log.warn('curious a2c variables:')
         slim.model_analyzer.analyze_vars(all_vars, print_info=True)
 
-    @staticmethod
-    def _extract_keys(list_of_dicts, *keys):
-        res = []
-        for k in keys:
-            res.append([d[k] for d in list_of_dicts])
-        return tuple(res)
-
     def best_action(self, observation, deterministic=False):
-        obs, timer = self._extract_keys([observation], 'obs', 'timer')
+        obs, timer = extract_keys([observation], 'obs', 'timer')
         actions, _ = self._policy_step_timer(obs, timer, deterministic)
         return actions[0]
 
@@ -463,7 +456,7 @@ class AgentCuriousA2C(AgentA2C):
             make_env_func=self.make_env_func,
             stats_episodes=self.params.stats_episodes,
         )
-        img_obs, timer_obs = self._extract_keys(multi_env.initial_obs(), 'obs', 'timer')
+        img_obs, timer_obs = extract_keys(multi_env.initial_obs(), 'obs', 'timer')
 
         adv_running_mean_std = RunningMeanStd(max_past_samples=10000)
 
@@ -484,7 +477,7 @@ class AgentCuriousA2C(AgentA2C):
 
                 # wait for all the workers to complete an environment step
                 next_obs, rewards, dones, infos = multi_env.step(actions)
-                next_img_obs, next_timer = self._extract_keys(next_obs, 'obs', 'timer')
+                next_img_obs, next_timer = extract_keys(next_obs, 'obs', 'timer')
 
                 # calculate curiosity bonus
                 bonuses = self._prediction_curiosity_bonus(img_obs, actions, next_img_obs)

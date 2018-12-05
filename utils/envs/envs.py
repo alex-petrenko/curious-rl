@@ -1,6 +1,7 @@
 import gym
 
-from algorithms.env_wrappers import RewardScalingWrapper, TimeLimitWrapper, SkipAndStackFramesWrapper
+from algorithms.env_wrappers import RewardScalingWrapper, TimeLimitWrapper, SkipAndStackFramesWrapper, \
+    RemainingTimeWrapper
 from utils.doom.doom_utils import make_doom_env, env_by_name
 
 
@@ -13,6 +14,7 @@ def create_env(env, **kwargs):
         env = TimeLimitWrapper(env, limit=200, random_variation_steps=1)
         env = SkipAndStackFramesWrapper(env, num_frames=3)
         env = RewardScalingWrapper(env, 0.1)
+        env = RemainingTimeWrapper(env)
         return env
     else:
         raise Exception('Unsupported env {0}'.format(env))

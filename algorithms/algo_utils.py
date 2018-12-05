@@ -45,3 +45,15 @@ def update_mean_var_count_from_moments(mean, var, count, batch_mean, batch_var, 
     new_count = tot_count
 
     return new_mean, new_var, new_count
+
+
+def extract_keys(list_of_dicts, *keys):
+    """Turn a lists of dicts into a tuple of lists, with one entry for every given key."""
+    res = []
+    for k in keys:
+        res.append([d[k] for d in list_of_dicts])
+    return tuple(res)
+
+
+def extract_key(list_of_dicts, key):
+    return extract_keys(list_of_dicts, key)[0]

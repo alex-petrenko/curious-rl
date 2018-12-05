@@ -3,7 +3,7 @@ import numpy as np
 from unittest import TestCase
 
 from algorithms.agent import AgentLearner, AgentRandom
-from algorithms.algo_utils import RunningMeanStd
+from algorithms.algo_utils import RunningMeanStd, extract_keys
 from algorithms.env_wrappers import TimeLimitWrapper
 from algorithms.exploit import run_policy_loop
 from algorithms.tests.test_wrappers import TEST_ENV_NAME
@@ -55,3 +55,9 @@ class TestAlgoUtils(TestCase):
         log.info('estimated mean %.2f variance %.2f', running_mean_std.mean, running_mean_std.var)
         self.assertAlmostEqual(running_mean_std.mean, true_mu, places=0)
         self.assertAlmostEqual(running_mean_std.var, true_sigma ** 2, places=0)
+
+    def test_extract_keys(self):
+        test_obs = [{'obs1': 1, 'obs2': 2}, {'obs1': 3, 'obs2': 4}]
+        obs1, obs2 = extract_keys(test_obs, 'obs1', 'obs2')
+        self.assertEqual(obs1, [1, 3])
+        self.assertEqual(obs2, [2, 4])
