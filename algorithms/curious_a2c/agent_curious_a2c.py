@@ -131,8 +131,8 @@ class Model:
             encoded_obs = lowdim_encoder(obs=obs)
             self.encoded_next_obs = lowdim_encoder(obs=next_obs)
 
-        feature_vector_size = encoded_obs.get_shape().as_list()[-1]
-        log.info('Feature vector size in ICM: %d', feature_vector_size)
+        self.feature_vector_size = encoded_obs.get_shape().as_list()[-1]
+        log.info('Feature vector size in ICM: %d', self.feature_vector_size)
 
         actions_one_hot = tf.one_hot(actions, num_actions)
 
@@ -144,7 +144,7 @@ class Model:
         forward_model_hidden = dense(forward_model_input, forward_fc, self.regularizer)
         forward_model_hidden = dense(forward_model_hidden, forward_fc, self.regularizer)
         forward_model_output = tf.contrib.layers.fully_connected(
-            forward_model_hidden, feature_vector_size, activation_fn=None,
+            forward_model_hidden, self.feature_vector_size, activation_fn=None,
         )
         self.predicted_obs = forward_model_output
 
@@ -198,6 +198,8 @@ class AgentCuriousA2C(AgentA2C):
             self.clip_advantage = 10
 
             self.forward_fc = 512
+
+            self.train_for_env_steps = 10 * 1000 * 1000 * 1000
 
         # noinspection PyMethodMayBeStatic
         def filename_prefix(self):
@@ -261,7 +263,7 @@ class AgentCuriousA2C(AgentA2C):
 
         # model losses
         forward_loss_batch = 0.5 * tf.square(self.model.encoded_next_obs - self.model.predicted_obs)
-        forward_loss_batch = 288.0 * tf.reduce_mean(forward_loss_batch, axis=1)
+        forward_loss_batch = tf.reduce_mean(forward_loss_batch, axis=1) * self.model.feature_vector_size
         forward_loss = tf.reduce_mean(forward_loss_batch)
 
         inverse_loss = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(
@@ -440,29 +442,24 @@ class AgentCuriousA2C(AgentA2C):
 
         return step
 
-    def learn(self, step_callback=None):
+    def _learn_loop(self, multi_env, step_callback=None):
         """
         Main training loop.
         :param step_callback: a hacky callback that takes a dictionary with all local variables as an argument.
         Allows you too look inside the training process.
         """
         step = initial_step = tf.train.global_step(self.session, tf.train.get_global_step())
-        env_steps = env_steps_initial = self.total_env_steps.eval(session=self.session)
+        env_steps = self.total_env_steps.eval(session=self.session)
         batch_size = self.params.rollout * self.params.num_envs
 
-        multi_env = MultiEnv(
-            self.params.num_envs,
-            self.params.num_workers,
-            make_env_func=self.make_env_func,
-            stats_episodes=self.params.stats_episodes,
-        )
         img_obs, timer_obs = extract_keys(multi_env.initial_obs(), 'obs', 'timer')
 
         adv_running_mean_std = RunningMeanStd(max_past_samples=10000)
 
-        def end_of_training(s): return s >= self.params.train_for_steps
+        def end_of_training(s, es):
+            return s >= self.params.train_for_steps or es > self.params.train_for_env_steps
 
-        while not end_of_training(step):
+        while not end_of_training(step, env_steps):
             timing = AttrDict({'experience': time.time(), 'batch': time.time()})
             experience_start = time.time()
 
@@ -519,7 +516,7 @@ class AgentCuriousA2C(AgentA2C):
             disc_rewards = np.asarray(disc_rewards, np.float32)
 
             # convert observations and estimations to meaningful n-step batches
-            batch_obs_shape = (self.params.rollout * multi_env.num_envs, ) + img_obs[0].shape
+            batch_obs_shape = (self.params.rollout * multi_env.num_envs,) + img_obs[0].shape
             batch_obs = np.asarray(batch_obs, np.float32).swapaxes(0, 1).reshape(batch_obs_shape)
             batch_next_obs = np.asarray(batch_next_obs, np.float32).swapaxes(0, 1).reshape(batch_obs_shape)
             batch_actions = np.asarray(batch_actions, np.int32).swapaxes(0, 1).flatten()
@@ -561,5 +558,19 @@ class AgentCuriousA2C(AgentA2C):
             if step_callback is not None:
                 step_callback(locals(), globals())
 
-        log.info('Done!')
-        multi_env.close()
+    def learn(self, step_callback=None):
+        try:
+            multi_env = MultiEnv(
+                self.params.num_envs,
+                self.params.num_workers,
+                make_env_func=self.make_env_func,
+                stats_episodes=self.params.stats_episodes,
+            )
+
+            self._learn_loop(multi_env, step_callback)
+        except Exception as exc:
+            log.exception(exc)
+        finally:
+            log.info('Closing env...')
+            multi_env.close()
+

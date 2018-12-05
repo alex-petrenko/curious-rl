@@ -44,6 +44,9 @@ class _MultiEnvWorker:
         while True:
             actions, step_type = self.step_queue.get()
             if actions is None:  # stop signal
+                for i, e in enumerate(self.envs):
+                    log.info('Closing env %d', self.env_indices[i])
+                    e.close()
                 log.info('Stop worker %r...', self.env_indices)
                 break
 
