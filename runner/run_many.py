@@ -28,8 +28,9 @@ def run_many(run_description):
             cmd_tokens = cmd.split(' ')
 
             logfile = open(join(experiment_dir(name, root_dir), 'log.txt'), 'wb')
-
             process = subprocess.Popen(cmd_tokens, stdout=logfile, stderr=logfile)
+            process.process_logfile = logfile
+
             processes.append(process)
 
             next_experiment = next(experiments, None)
@@ -39,6 +40,8 @@ def run_many(run_description):
             if process.poll() is None:
                 remaining_processes.append(process)
                 continue
+            else:
+                process.process_logfile.close()
 
             log.info('Process %r finished with code %r', process, process.returncode)
 

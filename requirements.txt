@@ -1,6 +1,0 @@
-colorlog
-gym
-ipython
-numpy
-opencv-python
-tensorflow-gpu
