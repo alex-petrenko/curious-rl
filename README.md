@@ -3,6 +3,8 @@
 Re-implementation of the 2017 paper "Curiosity-driven Exploration by Self-supervised Prediction" by Deepak Pathak et al.
 ([arXiv link](https://arxiv.org/pdf/1705.05363.pdf)). This was a project for the course EE556 in University of Southern California.
 
+Original imlementation by the author can be found here: https://github.com/pathak22/noreward-rl
+
 In this implementation the ICM module is added to the A2C algorithm, instead of A3C in the original paper.
 Here curious agent solves environment "VizdoomMyWayHome-v0":
 
