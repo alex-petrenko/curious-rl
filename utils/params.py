@@ -42,7 +42,8 @@ class Params:
 
     def load(self):
         with open(self._params_file()) as json_file:
-            self.__dict__ = json.load(json_file)
+            json_params = json.load(json_file)
+            self.__dict__.update(json_params)
             return self
 
     @classmethod

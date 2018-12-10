@@ -51,6 +51,9 @@ class CuriousA2CPolicy:
             else:
                 raise Exception('Unknown lowdim model name')
 
+        if params.ignore_timer:
+            timer = tf.multiply(timer, 0.0)
+
         encoded_input_with_timer = tf.concat([encoded_input, tf.expand_dims(timer, 1)], axis=1)
 
         fc = encoded_input_with_timer
@@ -196,6 +199,8 @@ class AgentCuriousA2C(AgentA2C):
 
             self.clip_bonus = 0.1
             self.clip_advantage = 10
+
+            self.ignore_timer = False  # whether or not policy uses the remaining episode time
 
             self.forward_fc = 512
 

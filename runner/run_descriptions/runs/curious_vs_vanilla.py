@@ -7,7 +7,7 @@ _params = ParamGrid([
 _experiments = [
     Experiment(
         'doom_maze_very_sparse',
-        'python -m algorithms.curious_a2c.train_curious_a2c --env=doom_maze_very_sparse --gpu_mem_fraction=0.1 --train_for_env_steps=200000000',
+        'python -m algorithms.curious_a2c.train_curious_a2c --env=doom_maze_very_sparse --gpu_mem_fraction=0.1 --train_for_env_steps=2000000000',
         _params.generate_params(randomize=False),
     ),
     # Experiment(
