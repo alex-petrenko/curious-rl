@@ -1,7 +1,7 @@
 # Curious RL
 
 Re-implementation of the 2017 paper "Curiosity-driven Exploration by Self-supervised Prediction" by Deepak Pathak et al.
-([arXiv link](https://arxiv.org/pdf/1705.05363.pdf)). This was a project for the course EE556 in University of Southern California.
+([arXiv link](https://arxiv.org/pdf/1705.05363.pdf)). This was a class project for the course EE556 at University of Southern California.
 
 Original imlementation by the author can be found here: https://github.com/pathak22/noreward-rl
 
