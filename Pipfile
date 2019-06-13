@@ -6,9 +6,11 @@ verify_ssl = true
 [dev-packages]
 
 [packages]
-tensorflow-gpu = "*"
-gym = "*"
-vizdoomgym = {git = "https://github.com/alex-petrenko/vizdoomgym",editable = true}
+tensorflow-gpu = "<1.14"
+gym = "<=0.12.1"
+vizdoom = {git = "https://github.com/mwydmuch/ViZDoom", ref = "1.1.7"}
+vizdoomgym = {git = "https://github.com/alex-petrenko/vizdoomgym", editable = true, ref = "curious_rl"}
+numpy = "<1.16"  # numpy 1.16.0 is known for memory leaks! https://github.com/numpy/numpy/issues/12793 (also with multiprocessing JoinableQueues)
 colorlog = "*"
 opencv-python = "*"
 

@@ -35,7 +35,7 @@ clone the repo and create a virtualenv with all the packages, activate the env:
 ```shell
 git clone https://github.com/alex-petrenko/curious-rl.git
 cd curious-rl
-pipenv sync
+pipenv install
 pipenv shell
 ```
 
@@ -63,6 +63,12 @@ behavior:
 
 ```shell
 python -m algorithms.curious_a2c.enjoy_curious_a2c --env=doom_maze_sparse
+```
+
+Sometimes if you Ctrl+C some of the Doom processes will not exit, so you have to use some command to kill them.
+
+```shell
+kill -9 $(ps aux | grep 'train_curious_a2c' | awk '{print $2}')
 ```
 
 It may take a long time to train the agent on mazes, be patient.
